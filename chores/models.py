@@ -232,3 +232,32 @@ class Contribution(models.Model):
 
     def __str__(self):
         return f'{self.member} contributed {self.minutes_spent}min to {self.occurrence}'
+
+
+class PointAward(models.Model):
+    """One point award for a completed occurrence (#25). Created by
+    `chores/rewards.py`, called directly from the completion view (#18)
+    — never at claim time, so points are never accrued before the work
+    is actually done. `revoked_at` (#26) is a soft-revoke flag: a
+    revoked row is never deleted, just excluded from point totals.
+    """
+
+    class Reason(models.TextChoices):
+        COMPLETION = 'COMPLETION', 'Completion'
+        ON_TIME = 'ON_TIME', 'On time'
+        DIFFICULTY = 'DIFFICULTY', 'Difficulty'
+        HELPING_OTHERS = 'HELPING_OTHERS', 'Helping others'
+
+    occurrence = models.ForeignKey(
+        ChoreOccurrence, on_delete=models.CASCADE, related_name='point_awards'
+    )
+    member = models.ForeignKey(
+        'households.Membership', on_delete=models.CASCADE, related_name='point_awards'
+    )
+    points = models.PositiveIntegerField()
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    awarded_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.points}pt {self.reason} for {self.member}'

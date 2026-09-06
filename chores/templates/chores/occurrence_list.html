@@ -35,6 +35,12 @@
     {% elif occurrence.parent_confirmed_at %}
       <span>Confirmed</span>
     {% endif %}
+    {% if occurrence.status == 'DONE' %}
+      <form method="post" action="{% url 'chores:occurrence-invalidate' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <button type="submit">Invalidate completion</button>
+      </form>
+    {% endif %}
   </li>
 {% endfor %}
 </ul>

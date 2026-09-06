@@ -606,3 +606,87 @@ def test_confirmation_fields_stay_null_until_acted_on(household, category):
 
     assert occurrence.parent_confirmed_by is None
     assert occurrence.parent_confirmed_at is None
+
+
+# --- Points on completion (#25 HTTP layer) ---
+
+
+@pytest.mark.django_db
+def test_completing_occurrence_via_view_awards_points(client, household, category):
+    from django.utils import timezone
+
+    from chores.models import PointAward
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    membership = Membership.objects.create(
+        household=household, user=user, role=Membership.Role.MEMBER
+    )
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes', point_value=10)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/complete/')
+
+    assert response.status_code == 302
+    assert PointAward.objects.filter(occurrence=occurrence, member=membership).exists()
+
+
+# --- Point revocation (#26 HTTP layer) ---
+
+
+@pytest.mark.django_db
+def test_parent_can_invalidate_completion(client, household, category):
+    from django.utils import timezone
+
+    from chores.models import PointAward
+    from chores.occurrences import complete_occurrence
+    from chores.rewards import award_points_for_completion
+
+    parent_user = User.objects.create_user(username='parent', password='pw12345')
+    parent_membership = Membership.objects.create(
+        household=household, user=parent_user, role=Membership.Role.PARENT
+    )
+    member_user = User.objects.create_user(username='alex', password='pw12345')
+    member = Membership.objects.create(
+        household=household, user=member_user, role=Membership.Role.MEMBER
+    )
+    chore = _make_chore(household, category, 'Wash dishes', point_value=10)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+    complete_occurrence(occurrence, member)
+    award_points_for_completion(occurrence, member)
+    client.force_login(parent_user)
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/invalidate/')
+
+    assert response.status_code == 302
+    assert not PointAward.objects.filter(occurrence=occurrence, revoked_at__isnull=True).exists()
+    assert PointAward.objects.filter(occurrence=occurrence).exists()
+    assert parent_membership  # sanity: parent membership was created
+
+
+@pytest.mark.django_db
+def test_member_cannot_invalidate_completion(client, household, category):
+    from django.utils import timezone
+
+    from chores.models import PointAward
+    from chores.occurrences import complete_occurrence
+    from chores.rewards import award_points_for_completion
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    member = Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    chore = _make_chore(household, category, 'Wash dishes', point_value=10)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+    complete_occurrence(occurrence, member)
+    award_points_for_completion(occurrence, member)
+    client.force_login(user)
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/invalidate/')
+
+    assert response.status_code == 403
+    assert PointAward.objects.filter(occurrence=occurrence, revoked_at__isnull=True).exists()

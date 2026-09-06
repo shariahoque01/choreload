@@ -47,4 +47,9 @@ urlpatterns = [
         views.ConfirmOccurrenceView.as_view(),
         name='occurrence-confirm',
     ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/invalidate/',
+        views.InvalidateCompletionView.as_view(),
+        name='occurrence-invalidate',
+    ),
 ]

@@ -4,6 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -11,7 +12,7 @@ from households.models import Household, Membership
 from households.permissions import can_approve, can_manage_chores, is_active_member
 
 from .forms import ChecklistItemFormSet, ChoreForm, ContributionForm
-from .models import Category, Chore, ChoreOccurrence, ChoreTemplate
+from .models import Category, Chore, ChoreOccurrence, ChoreTemplate, PointAward
 from .occurrences import (
     AlreadyCompletedError,
     DependencyNotDoneError,
@@ -22,6 +23,7 @@ from .occurrences import (
     ensure_occurrences_exist,
     unclaim_occurrence,
 )
+from .rewards import award_points_for_completion, revoke_point_award
 
 
 class HouseholdChoreMixin(LoginRequiredMixin):
@@ -235,6 +237,8 @@ class CompleteOccurrenceView(HouseholdMemberMixin, View):
             complete_occurrence(occurrence, self.membership)
         except AlreadyCompletedError as exc:
             messages.error(request, str(exc))
+        else:
+            award_points_for_completion(occurrence, self.membership)
         return redirect(self.get_success_url())
 
 
@@ -281,4 +285,23 @@ class ConfirmOccurrenceView(HouseholdMemberMixin, View):
             confirm_occurrence(occurrence, self.membership)
         except NotDoneYetError as exc:
             messages.error(request, str(exc))
+        return redirect(self.get_success_url())
+
+
+class InvalidateCompletionView(HouseholdMemberMixin, View):
+    """#26: a PARENT invalidates a completed occurrence, gated by
+    can_approve. Soft-revokes every not-yet-revoked PointAward tied to
+    the occurrence — rows are never deleted, just excluded from totals
+    via revoked_at.
+    """
+
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        if not can_approve(request.user, occurrence):
+            raise PermissionDenied('Only a PARENT can invalidate a completion.')
+        now = timezone.now()
+        for award in PointAward.objects.filter(occurrence=occurrence, revoked_at__isnull=True):
+            revoke_point_award(award, now)
         return redirect(self.get_success_url())
