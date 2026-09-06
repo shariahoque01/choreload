@@ -8,7 +8,7 @@ from django.views.generic import CreateView, ListView, UpdateView
 from households.models import Household
 from households.permissions import can_manage_chores
 
-from .forms import ChoreForm
+from .forms import ChecklistItemFormSet, ChoreForm
 from .models import Chore
 
 
@@ -54,9 +54,35 @@ class ChoreCreateView(HouseholdChoreMixin, CreateView):
 
 
 class ChoreUpdateView(HouseholdChoreMixin, UpdateView):
+    """Edit a chore's own fields, plus basic CRUD on its checklist items
+    (#11) via an inline formset. ChoreDependency edges are managed
+    separately through ChoreDependencyForm — not embedded here, since a
+    chore may have several dependency edges and this keeps the main
+    edit form simple.
+    """
+
     model = Chore
     form_class = ChoreForm
     template_name = 'chores/chore_form.html'
 
     def get_queryset(self):
         return Chore.objects.filter(household=self.household)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'checklist_formset' not in context:
+            context['checklist_formset'] = ChecklistItemFormSet(instance=self.object)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        checklist_formset = ChecklistItemFormSet(request.POST, instance=self.object)
+        if form.is_valid() and checklist_formset.is_valid():
+            self.object = form.save()
+            checklist_formset.instance = self.object
+            checklist_formset.save()
+            return redirect(self.get_success_url())
+        return self.render_to_response(
+            self.get_context_data(form=form, checklist_formset=checklist_formset)
+        )

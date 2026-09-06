@@ -97,3 +97,44 @@ class Chore(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ChoreDependency(models.Model):
+    """Self-referential: `chore` cannot be claimed until `depends_on`'s
+    current occurrence is DONE. Enforcement lives in the claim service
+    (#13); this model is just the graph edge.
+    """
+
+    chore = models.ForeignKey(Chore, on_delete=models.CASCADE, related_name='dependencies')
+    depends_on = models.ForeignKey(Chore, on_delete=models.CASCADE, related_name='dependents')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['chore', 'depends_on'], name='unique_chore_dependency'),
+            models.CheckConstraint(
+                condition=~models.Q(chore=models.F('depends_on')),
+                name='chore_cannot_depend_on_itself',
+            ),
+        ]
+
+    def clean(self):
+        if self.chore_id and self.depends_on_id and self.chore_id == self.depends_on_id:
+            raise ValidationError('A chore cannot depend on itself.')
+
+    def __str__(self):
+        return f'{self.chore} depends on {self.depends_on}'
+
+
+class ChecklistItem(models.Model):
+    """One step within a chore's optional checklist, shown on the
+    completion form. Position determines display order."""
+
+    chore = models.ForeignKey(Chore, on_delete=models.CASCADE, related_name='checklist_items')
+    label = models.CharField(max_length=200)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position']
+
+    def __str__(self):
+        return self.label

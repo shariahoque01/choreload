@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Chore
+from .models import ChecklistItem, Chore, ChoreDependency
 
 
 class ChoreForm(forms.ModelForm):
@@ -43,3 +43,38 @@ class ChoreForm(forms.ModelForm):
             chore.full_clean()
             chore.save()
         return chore
+
+
+ChecklistItemFormSet = forms.inlineformset_factory(
+    Chore, ChecklistItem, fields=['label', 'position'], extra=1, can_delete=True
+)
+
+
+class ChoreDependencyForm(forms.ModelForm):
+    """A single 'must finish first' edge for a chore. `depends_on`'s
+    queryset is restricted to the same household and excludes the chore
+    itself, so self-dependency is rejected at the form layer too (the
+    model's CheckConstraint/clean() is the DB-level backstop).
+    """
+
+    class Meta:
+        model = ChoreDependency
+        fields = ['depends_on']
+
+    def __init__(self, *args, chore=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.chore = chore
+        if chore is not None:
+            self.instance.chore = chore
+            self.fields['depends_on'].queryset = Chore.objects.filter(
+                household=chore.household
+            ).exclude(pk=chore.pk)
+
+    def save(self, commit=True):
+        dependency = super().save(commit=False)
+        if self.chore is not None:
+            dependency.chore = self.chore
+        if commit:
+            dependency.full_clean()
+            dependency.save()
+        return dependency

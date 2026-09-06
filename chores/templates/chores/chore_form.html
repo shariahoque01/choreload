@@ -2,5 +2,11 @@
 <form method="post">
   {% csrf_token %}
   {{ form.as_p }}
+  {% if checklist_formset %}
+    {{ checklist_formset.management_form }}
+    {% for checklist_form in checklist_formset %}
+      {{ checklist_form.as_p }}
+    {% endfor %}
+  {% endif %}
   <button type="submit">Save</button>
 </form>

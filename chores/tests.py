@@ -3,8 +3,15 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from chores.forms import ChoreForm
-from chores.models import DEFAULT_CATEGORY_NAMES, Category, Chore, seed_default_categories
+from chores.forms import ChoreDependencyForm, ChoreForm
+from chores.models import (
+    DEFAULT_CATEGORY_NAMES,
+    Category,
+    ChecklistItem,
+    Chore,
+    ChoreDependency,
+    seed_default_categories,
+)
 from households.models import Household, Membership
 
 
@@ -156,3 +163,96 @@ def test_category_from_another_household_is_rejected(household, category):
 
     with pytest.raises(ValidationError):
         chore.full_clean()
+
+
+# --- ChoreDependency and ChecklistItem (#11) ---
+
+
+def _make_chore(household, category, name='Chore'):
+    return Chore.objects.create(
+        household=household,
+        name=name,
+        category=category,
+        estimated_minutes=10,
+        initial_estimate=10,
+        due_kind=Chore.DueKind.WINDOW,
+    )
+
+
+@pytest.mark.django_db
+def test_chore_dependency_basic_crud(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+    depends_on = _make_chore(household, category, 'Clear table')
+
+    dependency = ChoreDependency.objects.create(chore=chore, depends_on=depends_on)
+
+    assert list(chore.dependencies.all()) == [dependency]
+    dependency.delete()
+    assert not chore.dependencies.exists()
+
+
+@pytest.mark.django_db
+def test_chore_cannot_depend_on_itself(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    with pytest.raises(ValidationError):
+        ChoreDependency(chore=chore, depends_on=chore).full_clean()
+
+
+@pytest.mark.django_db
+def test_chore_dependency_form_rejects_self_dependency(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    form = ChoreDependencyForm(data={'depends_on': chore.pk}, chore=chore)
+
+    assert not form.is_valid()
+
+
+@pytest.mark.django_db
+def test_chore_dependency_form_creates_edge(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+    depends_on = _make_chore(household, category, 'Clear table')
+
+    form = ChoreDependencyForm(data={'depends_on': depends_on.pk}, chore=chore)
+
+    assert form.is_valid(), form.errors
+    dependency = form.save()
+    assert dependency.chore == chore
+    assert dependency.depends_on == depends_on
+
+
+@pytest.mark.django_db
+def test_checklist_items_ordered_by_position(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+    ChecklistItem.objects.create(chore=chore, label='Rinse', position=2)
+    ChecklistItem.objects.create(chore=chore, label='Scrub', position=1)
+    ChecklistItem.objects.create(chore=chore, label='Dry', position=3)
+
+    labels = list(chore.checklist_items.values_list('label', flat=True))
+
+    assert labels == ['Scrub', 'Rinse', 'Dry']
+
+
+@pytest.mark.django_db
+def test_checklist_item_crud_via_chore_edit_view(client, household, category):
+    user = User.objects.create_user(username='parent', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    data = _chore_form_data(category, name='Wash dishes')
+    data.update(
+        {
+            'checklist_items-TOTAL_FORMS': '1',
+            'checklist_items-INITIAL_FORMS': '0',
+            'checklist_items-MIN_NUM_FORMS': '0',
+            'checklist_items-MAX_NUM_FORMS': '1000',
+            'checklist_items-0-label': 'Rinse plates',
+            'checklist_items-0-position': '0',
+        }
+    )
+
+    response = client.post(f'/households/{household.pk}/chores/{chore.pk}/edit/', data=data)
+
+    assert response.status_code == 302
+    assert ChecklistItem.objects.filter(chore=chore, label='Rinse plates').exists()
