@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 
 from households.models import Household, Membership
+from households.permissions import can_manage_chores, can_manage_members
 
 
 @pytest.mark.django_db
@@ -35,3 +36,47 @@ def test_membership_household_user_pair_is_unique():
 
     with pytest.raises(IntegrityError):
         Membership.objects.create(household=household, user=user)
+
+
+@pytest.mark.parametrize('predicate', [can_manage_chores, can_manage_members])
+@pytest.mark.django_db
+def test_household_predicate_true_for_active_parent(predicate):
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+
+    assert predicate(user, household) is True
+
+
+@pytest.mark.parametrize('predicate', [can_manage_chores, can_manage_members])
+@pytest.mark.django_db
+def test_household_predicate_false_for_active_member(predicate):
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+
+    assert predicate(user, household) is False
+
+
+@pytest.mark.parametrize('predicate', [can_manage_chores, can_manage_members])
+@pytest.mark.django_db
+def test_household_predicate_false_for_no_membership(predicate):
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+
+    assert predicate(user, household) is False
+
+
+@pytest.mark.parametrize('predicate', [can_manage_chores, can_manage_members])
+@pytest.mark.django_db
+def test_household_predicate_false_for_inactive_parent(predicate):
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(
+        household=household,
+        user=user,
+        role=Membership.Role.PARENT,
+        is_active=False,
+    )
+
+    assert predicate(user, household) is False

@@ -22,5 +22,6 @@ from config.views import health_check
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health-check'),
+    path('households/', include('chores.urls', namespace='chores')),
     path('', include('accounts.urls')),
 ]
