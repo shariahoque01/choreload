@@ -20,6 +20,13 @@
         <button type="submit">Mark done</button>
       </form>
     {% endif %}
+    {% if occurrence.status == 'DONE' and occurrence.chore.is_collaborative %}
+      <form method="post" action="{% url 'chores:occurrence-contribute' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <input type="number" name="minutes_spent" min="1" placeholder="Minutes">
+        <button type="submit">Add my contribution</button>
+      </form>
+    {% endif %}
   </li>
 {% endfor %}
 </ul>

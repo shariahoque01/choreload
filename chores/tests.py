@@ -12,6 +12,7 @@ from chores.models import (
     ChoreDependency,
     ChoreOccurrence,
     ChoreTemplate,
+    Contribution,
     seed_default_categories,
 )
 from households.models import Household, Membership
@@ -170,8 +171,8 @@ def test_category_from_another_household_is_rejected(household, category):
 # --- ChoreDependency and ChecklistItem (#11) ---
 
 
-def _make_chore(household, category, name='Chore'):
-    return Chore.objects.create(
+def _make_chore(household, category, name='Chore', **overrides):
+    defaults = dict(
         household=household,
         name=name,
         category=category,
@@ -179,6 +180,8 @@ def _make_chore(household, category, name='Chore'):
         initial_estimate=10,
         due_kind=Chore.DueKind.WINDOW,
     )
+    defaults.update(overrides)
+    return Chore.objects.create(**defaults)
 
 
 @pytest.mark.django_db
@@ -441,3 +444,109 @@ def test_completing_already_done_occurrence_shows_error_not_500(client, househol
     response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/complete/')
 
     assert response.status_code == 302
+
+
+# --- Collaborative contributions (#21) ---
+
+
+@pytest.mark.django_db
+def test_contribution_form_shown_for_collaborative_done_occurrence(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Clean garage', is_collaborative=True)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.get(f'/households/{household.pk}/occurrences/')
+
+    assert response.status_code == 200
+    assert f'occurrences/{occurrence.pk}/contribute/'.encode() in response.content
+
+
+@pytest.mark.django_db
+def test_contribution_form_hidden_for_non_collaborative_occurrence(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes', is_collaborative=False)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.get(f'/households/{household.pk}/occurrences/')
+
+    assert response.status_code == 200
+    assert f'occurrences/{occurrence.pk}/contribute/'.encode() not in response.content
+
+
+@pytest.mark.django_db
+def test_member_can_add_contribution_to_collaborative_occurrence(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    membership = Membership.objects.create(
+        household=household, user=user, role=Membership.Role.MEMBER
+    )
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Clean garage', is_collaborative=True)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.post(
+        f'/households/{household.pk}/occurrences/{occurrence.pk}/contribute/',
+        data={'minutes_spent': 20},
+    )
+
+    assert response.status_code == 302
+    assert Contribution.objects.filter(
+        occurrence=occurrence, member=membership, minutes_spent=20
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_cannot_add_contribution_to_non_collaborative_chore(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes', is_collaborative=False)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.post(
+        f'/households/{household.pk}/occurrences/{occurrence.pk}/contribute/',
+        data={'minutes_spent': 20},
+    )
+
+    assert response.status_code == 403
+    assert not Contribution.objects.filter(occurrence=occurrence).exists()
+
+
+@pytest.mark.django_db
+def test_cannot_add_contribution_before_occurrence_is_done(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Clean garage', is_collaborative=True)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    response = client.post(
+        f'/households/{household.pk}/occurrences/{occurrence.pk}/contribute/',
+        data={'minutes_spent': 20},
+    )
+
+    assert response.status_code == 302
+    assert not Contribution.objects.filter(occurrence=occurrence).exists()

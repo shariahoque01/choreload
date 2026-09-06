@@ -37,4 +37,9 @@ urlpatterns = [
         views.CompleteOccurrenceView.as_view(),
         name='occurrence-complete',
     ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/contribute/',
+        views.AddContributionView.as_view(),
+        name='occurrence-contribute',
+    ),
 ]

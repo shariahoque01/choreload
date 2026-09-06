@@ -10,7 +10,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from households.models import Household, Membership
 from households.permissions import can_manage_chores, is_active_member
 
-from .forms import ChecklistItemFormSet, ChoreForm
+from .forms import ChecklistItemFormSet, ChoreForm, ContributionForm
 from .models import Category, Chore, ChoreOccurrence, ChoreTemplate
 from .occurrences import (
     AlreadyCompletedError,
@@ -192,6 +192,11 @@ class OccurrenceListView(HouseholdMemberMixin, ListView):
             .order_by('chore__name', 'period_start')
         )
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['household_id'] = self.household.pk
+        return context
+
 
 class ClaimOccurrenceView(HouseholdMemberMixin, View):
     def post(self, request, *args, **kwargs):
@@ -228,4 +233,31 @@ class CompleteOccurrenceView(HouseholdMemberMixin, View):
             complete_occurrence(occurrence, self.membership)
         except AlreadyCompletedError as exc:
             messages.error(request, str(exc))
+        return redirect(self.get_success_url())
+
+
+class AddContributionView(HouseholdMemberMixin, View):
+    """#21: entering minutes for a collaborative chore, after the
+    occurrence is DONE. Rejected (400) for a non-collaborative chore or
+    an occurrence that isn't DONE yet — the completion form itself only
+    shows this action when both hold, but the view enforces it too.
+    """
+
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        if not occurrence.chore.is_collaborative:
+            raise PermissionDenied('This chore is not collaborative.')
+        if occurrence.status != ChoreOccurrence.Status.DONE:
+            messages.error(request, 'Contributions can only be added after completion.')
+            return redirect(self.get_success_url())
+        form = ContributionForm(request.POST)
+        if form.is_valid():
+            contribution = form.save(commit=False)
+            contribution.occurrence = occurrence
+            contribution.member = self.membership
+            contribution.save()
+        else:
+            messages.error(request, 'Enter a valid number of minutes.')
         return redirect(self.get_success_url())

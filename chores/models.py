@@ -202,3 +202,23 @@ class ChoreOccurrence(models.Model):
 
     def __str__(self):
         return f'{self.chore} ({self.period_start})'
+
+
+class Contribution(models.Model):
+    """One member's manually-entered share of a collaborative chore
+    (#21). Only meaningful for occurrences whose `chore.is_collaborative`
+    is True; the form to create one is only shown after the occurrence
+    is DONE (#18) — no timer, minutes are entered manually.
+    """
+
+    occurrence = models.ForeignKey(
+        ChoreOccurrence, on_delete=models.CASCADE, related_name='contributions'
+    )
+    member = models.ForeignKey(
+        'households.Membership', on_delete=models.CASCADE, related_name='contributions'
+    )
+    minutes_spent = models.PositiveIntegerField()
+    entered_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.member} contributed {self.minutes_spent}min to {self.occurrence}'

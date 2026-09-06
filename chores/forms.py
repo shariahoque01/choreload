@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ChecklistItem, Chore, ChoreDependency
+from .models import ChecklistItem, Chore, ChoreDependency, Contribution
 
 
 class ChoreForm(forms.ModelForm):
@@ -78,3 +78,13 @@ class ChoreDependencyForm(forms.ModelForm):
             dependency.full_clean()
             dependency.save()
         return dependency
+
+
+class ContributionForm(forms.ModelForm):
+    """Entering minutes for a collaborative chore's completed occurrence
+    (#21). occurrence/member are set by the view, not user input.
+    """
+
+    class Meta:
+        model = Contribution
+        fields = ['minutes_spent']
