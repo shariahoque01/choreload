@@ -138,3 +138,46 @@ class ChecklistItem(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class ChoreOccurrence(models.Model):
+    """One claimable/completable instance of a Chore for a given period.
+    `chores/occurrences.py` is the sole writer of status/claimed_*/
+    completed_* — see that module's docstring.
+    """
+
+    class Status(models.TextChoices):
+        AVAILABLE = 'AVAILABLE', 'Available'
+        CLAIMED = 'CLAIMED', 'Claimed'
+        DONE = 'DONE', 'Done'
+        OVERDUE = 'OVERDUE', 'Overdue'
+
+    chore = models.ForeignKey(Chore, on_delete=models.CASCADE, related_name='occurrences')
+    period_start = models.DateField()
+    due_at = models.DateTimeField(null=True, blank=True)
+    window_label = models.CharField(max_length=50, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.AVAILABLE)
+    claimed_by = models.ForeignKey(
+        'households.Membership',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='claimed_occurrences',
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_by = models.ForeignKey(
+        'households.Membership',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='completed_occurrences',
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['chore', 'period_start'], name='unique_chore_period')
+        ]
+
+    def __str__(self):
+        return f'{self.chore} ({self.period_start})'

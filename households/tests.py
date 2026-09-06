@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 
 from households.models import Household, Membership
-from households.permissions import can_manage_chores, can_manage_members
+from households.permissions import can_approve, can_manage_chores, can_manage_members
 
 
 @pytest.mark.django_db
@@ -80,3 +80,59 @@ def test_household_predicate_false_for_inactive_parent(predicate):
     )
 
     assert predicate(user, household) is False
+
+
+def _make_occurrence(household):
+    from chores.models import Category, Chore, ChoreOccurrence
+
+    category = Category.objects.create(household=household, name='Kitchen')
+    chore = Chore.objects.create(
+        household=household,
+        name='Wash dishes',
+        category=category,
+        estimated_minutes=15,
+        initial_estimate=15,
+        due_kind=Chore.DueKind.WINDOW,
+    )
+    return ChoreOccurrence.objects.create(chore=chore, period_start='2024-03-14')
+
+
+@pytest.mark.django_db
+def test_can_approve_true_for_active_parent():
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+    occurrence = _make_occurrence(household)
+
+    assert can_approve(user, occurrence) is True
+
+
+@pytest.mark.django_db
+def test_can_approve_false_for_active_member():
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    occurrence = _make_occurrence(household)
+
+    assert can_approve(user, occurrence) is False
+
+
+@pytest.mark.django_db
+def test_can_approve_false_for_no_membership():
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    occurrence = _make_occurrence(household)
+
+    assert can_approve(user, occurrence) is False
+
+
+@pytest.mark.django_db
+def test_can_approve_false_for_inactive_parent():
+    household = Household.objects.create(name='The Smiths', join_code='ABC123')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(
+        household=household, user=user, role=Membership.Role.PARENT, is_active=False
+    )
+    occurrence = _make_occurrence(household)
+
+    assert can_approve(user, occurrence) is False
