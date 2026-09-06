@@ -356,3 +356,43 @@ def test_double_completion_race_only_applies_once(household, category, member):
 
     with pytest.raises(AlreadyCompletedError):
         complete_occurrence(stale_copy, member)
+
+
+# --- Parent confirmation (#20) ---
+
+
+@pytest.mark.django_db
+def test_confirm_sets_confirmer_and_timestamp(household, category, member):
+    from chores.occurrences import confirm_occurrence
+
+    parent_user = User.objects.create_user(username='parent', password='pw12345')
+    parent_membership = Membership.objects.create(
+        household=household, user=parent_user, role=Membership.Role.PARENT
+    )
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    confirm_occurrence(occurrence, parent_membership)
+
+    occurrence.refresh_from_db()
+    assert occurrence.parent_confirmed_by_id == parent_membership.pk
+    assert occurrence.parent_confirmed_at is not None
+
+
+@pytest.mark.django_db
+def test_cannot_confirm_occurrence_that_is_not_done(household, category, member):
+    from chores.occurrences import NotDoneYetError, confirm_occurrence
+
+    parent_user = User.objects.create_user(username='parent', password='pw12345')
+    parent_membership = Membership.objects.create(
+        household=household, user=parent_user, role=Membership.Role.PARENT
+    )
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    with pytest.raises(NotDoneYetError):
+        confirm_occurrence(occurrence, parent_membership)

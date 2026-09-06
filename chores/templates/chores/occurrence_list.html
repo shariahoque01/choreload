@@ -27,6 +27,14 @@
         <button type="submit">Add my contribution</button>
       </form>
     {% endif %}
+    {% if occurrence.status == 'DONE' and not occurrence.parent_confirmed_at %}
+      <form method="post" action="{% url 'chores:occurrence-confirm' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <button type="submit">Confirm</button>
+      </form>
+    {% elif occurrence.parent_confirmed_at %}
+      <span>Confirmed</span>
+    {% endif %}
   </li>
 {% endfor %}
 </ul>

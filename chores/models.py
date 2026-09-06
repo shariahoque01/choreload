@@ -194,6 +194,16 @@ class ChoreOccurrence(models.Model):
         related_name='completed_occurrences',
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    # #20: set only by a PARENT's confirm action, independent of whether
+    # a photo (#19) was attached. Null until acted on.
+    parent_confirmed_by = models.ForeignKey(
+        'households.Membership',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_occurrences',
+    )
+    parent_confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

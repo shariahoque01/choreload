@@ -173,3 +173,24 @@ def complete_occurrence(occurrence, membership):
         )
     occurrence.refresh_from_db()
     return occurrence
+
+
+class NotDoneYetError(Exception):
+    """Raised when confirmation is attempted on an occurrence that isn't
+    DONE yet."""
+
+
+@transaction.atomic
+def confirm_occurrence(occurrence, parent_membership):
+    """A PARENT confirms an already-DONE occurrence (#20). Independent of
+    whether a photo (#19) was attached. Gating on can_approve happens in
+    the view — this function only enforces the DONE precondition.
+    """
+    if occurrence.status != ChoreOccurrence.Status.DONE:
+        raise NotDoneYetError(
+            f'"{occurrence.chore}" ({occurrence.period_start}) is not DONE yet.'
+        )
+    occurrence.parent_confirmed_by = parent_membership
+    occurrence.parent_confirmed_at = timezone.now()
+    occurrence.save(update_fields=['parent_confirmed_by', 'parent_confirmed_at'])
+    return occurrence

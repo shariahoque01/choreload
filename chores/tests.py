@@ -550,3 +550,59 @@ def test_cannot_add_contribution_before_occurrence_is_done(client, household, ca
 
     assert response.status_code == 302
     assert not Contribution.objects.filter(occurrence=occurrence).exists()
+
+
+# --- Parent confirmation (#20 HTTP layer) ---
+
+
+@pytest.mark.django_db
+def test_parent_can_confirm_completed_occurrence(client, household, category):
+    from django.utils import timezone
+
+    parent_user = User.objects.create_user(username='parent', password='pw12345')
+    parent_membership = Membership.objects.create(
+        household=household, user=parent_user, role=Membership.Role.PARENT
+    )
+    client.force_login(parent_user)
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/confirm/')
+
+    assert response.status_code == 302
+    occurrence.refresh_from_db()
+    assert occurrence.parent_confirmed_by_id == parent_membership.pk
+
+
+@pytest.mark.django_db
+def test_member_cannot_confirm_occurrence(client, household, category):
+    from django.utils import timezone
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/confirm/')
+
+    assert response.status_code == 403
+    occurrence.refresh_from_db()
+    assert occurrence.parent_confirmed_at is None
+
+
+@pytest.mark.django_db
+def test_confirmation_fields_stay_null_until_acted_on(household, category):
+    from django.utils import timezone
+
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.DONE
+    )
+
+    assert occurrence.parent_confirmed_by is None
+    assert occurrence.parent_confirmed_at is None

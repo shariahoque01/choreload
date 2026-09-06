@@ -8,15 +8,17 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from households.models import Household, Membership
-from households.permissions import can_manage_chores, is_active_member
+from households.permissions import can_approve, can_manage_chores, is_active_member
 
 from .forms import ChecklistItemFormSet, ChoreForm, ContributionForm
 from .models import Category, Chore, ChoreOccurrence, ChoreTemplate
 from .occurrences import (
     AlreadyCompletedError,
     DependencyNotDoneError,
+    NotDoneYetError,
     claim_occurrence,
     complete_occurrence,
+    confirm_occurrence,
     ensure_occurrences_exist,
     unclaim_occurrence,
 )
@@ -260,4 +262,23 @@ class AddContributionView(HouseholdMemberMixin, View):
             contribution.save()
         else:
             messages.error(request, 'Enter a valid number of minutes.')
+        return redirect(self.get_success_url())
+
+
+class ConfirmOccurrenceView(HouseholdMemberMixin, View):
+    """#20: a PARENT confirms a DONE occurrence, gated by can_approve
+    (#6). A MEMBER gets 403. Works independent of whether a photo was
+    attached (#19); confirmation fields stay null until acted on.
+    """
+
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        if not can_approve(request.user, occurrence):
+            raise PermissionDenied('Only a PARENT can confirm a completion.')
+        try:
+            confirm_occurrence(occurrence, self.membership)
+        except NotDoneYetError as exc:
+            messages.error(request, str(exc))
         return redirect(self.get_success_url())

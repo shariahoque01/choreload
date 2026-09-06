@@ -42,4 +42,9 @@ urlpatterns = [
         views.AddContributionView.as_view(),
         name='occurrence-contribute',
     ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/confirm/',
+        views.ConfirmOccurrenceView.as_view(),
+        name='occurrence-confirm',
+    ),
 ]
