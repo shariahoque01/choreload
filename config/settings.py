@@ -146,3 +146,10 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Auth (accounts/) — see architecture.md's Auth section: username/password
+# only, no custom User model, no dashboard app yet so login/logout/signup
+# all redirect to accounts' own minimal home page.
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'home'
+LOGOUT_REDIRECT_URL = 'home'
