@@ -48,3 +48,31 @@ class Membership(models.Model):
 
     def __str__(self):
         return f'{self.user} in {self.household} ({self.role})'
+
+
+class Pause(models.Model):
+    """A member pausing one chore (chore set) or all of their chores
+    (chore=null), for a date range or indefinitely (end_date=null).
+    Creating one unclaims every currently-CLAIMED occurrence it covers
+    (#15) via chores/occurrences.py's unclaim_occurrence — no duplicate
+    write path.
+
+    `ended_at` is set only when a member manually ends the pause early.
+    Natural expiry (today > end_date) is never backfilled onto this
+    field — #16 detects "did a pause just expire" on-demand by comparing
+    end_date to today, not by checking ended_at.
+    """
+
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name='pauses')
+    # Null means "all of this member's chores" rather than one specific chore.
+    chore = models.ForeignKey(
+        'chores.Chore', on_delete=models.CASCADE, null=True, blank=True, related_name='pauses'
+    )
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        target = self.chore or 'all chores'
+        return f'{self.membership} pause on {target} from {self.start_date}'

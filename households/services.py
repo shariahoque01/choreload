@@ -4,9 +4,10 @@ request/response cycle.
 """
 
 from django.db import transaction
+from django.utils import timezone
 
 from .join_codes import unique_join_code
-from .models import Household, Membership
+from .models import Household, Membership, Pause
 
 
 def create_household(user, name):
@@ -84,3 +85,46 @@ def auto_set_active_household_on_login(request, user):
     memberships = list(Membership.objects.filter(user=user, is_active=True)[:2])
     if len(memberships) == 1:
         set_active_household(request, memberships[0].household)
+
+
+@transaction.atomic
+def create_pause(membership, chore, start_date, end_date):
+    """Pause `chore` (or all of the member's chores, if `chore` is None)
+    for `membership`, from `start_date` to `end_date` (indefinite if
+    `end_date` is None). Immediately unclaims every currently-CLAIMED
+    occurrence the pause covers, reusing chores/occurrences.py's
+    unclaim_occurrence — no duplicate write path for status/claimed_*
+    (#13). Deferred-imported to avoid a module-load-time dependency
+    from households -> chores.
+    """
+    from chores.models import ChoreOccurrence
+    from chores.occurrences import unclaim_occurrence
+
+    pause = Pause.objects.create(
+        membership=membership, chore=chore, start_date=start_date, end_date=end_date
+    )
+
+    covered = ChoreOccurrence.objects.filter(
+        claimed_by=membership,
+        status=ChoreOccurrence.Status.CLAIMED,
+        period_start__gte=start_date,
+    )
+    if end_date is not None:
+        covered = covered.filter(period_start__lte=end_date)
+    if chore is not None:
+        covered = covered.filter(chore=chore)
+    else:
+        covered = covered.filter(chore__household=membership.household)
+
+    for occurrence in covered:
+        unclaim_occurrence(occurrence)
+
+    return pause
+
+
+def end_pause(pause):
+    """Manually end a pause early. Natural expiry (end_date passed) is
+    never routed through here — see Pause's docstring and #16."""
+    pause.ended_at = timezone.now()
+    pause.save(update_fields=['ended_at'])
+    return pause
