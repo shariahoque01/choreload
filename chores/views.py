@@ -1,15 +1,25 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from households.models import Household
-from households.permissions import can_manage_chores
+from households.models import Household, Membership
+from households.permissions import can_manage_chores, is_active_member
 
 from .forms import ChecklistItemFormSet, ChoreForm
-from .models import Category, Chore, ChoreTemplate
+from .models import Category, Chore, ChoreOccurrence, ChoreTemplate
+from .occurrences import (
+    AlreadyCompletedError,
+    DependencyNotDoneError,
+    claim_occurrence,
+    complete_occurrence,
+    ensure_occurrences_exist,
+    unclaim_occurrence,
+)
 
 
 class HouseholdChoreMixin(LoginRequiredMixin):
@@ -142,3 +152,80 @@ class ChoreDeleteView(HouseholdChoreMixin, DeleteView):
         # inside DeleteView.get_object() 404s instead of leaking across
         # households).
         return Chore.objects.filter(household=self.household)
+
+
+class HouseholdMemberMixin(LoginRequiredMixin):
+    """Resolves `self.household` and enforces `is_active_member` — used
+    for occurrence actions (#13, #18) any active member may perform,
+    unlike `HouseholdChoreMixin`'s PARENT-only chore management.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        self.household = get_object_or_404(Household, pk=kwargs['household_id'])
+        if not request.user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
+        if not is_active_member(request.user, self.household):
+            raise PermissionDenied('Only an active member of this household may do that.')
+        self.membership = Membership.objects.get(
+            household=self.household, user=request.user, is_active=True
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_success_url(self):
+        return reverse_lazy(
+            'chores:occurrence-list', kwargs={'household_id': self.household.pk}
+        )
+
+
+class OccurrenceListView(HouseholdMemberMixin, ListView):
+    """Lists this period's occurrences, generating them on-demand (#12)
+    on every read — no background job."""
+
+    template_name = 'chores/occurrence_list.html'
+    context_object_name = 'occurrences'
+
+    def get_queryset(self):
+        ensure_occurrences_exist(self.household)
+        return (
+            ChoreOccurrence.objects.filter(chore__household=self.household)
+            .select_related('chore', 'claimed_by', 'completed_by')
+            .order_by('chore__name', 'period_start')
+        )
+
+
+class ClaimOccurrenceView(HouseholdMemberMixin, View):
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        try:
+            claim_occurrence(occurrence, self.membership)
+        except DependencyNotDoneError as exc:
+            messages.error(request, str(exc))
+        return redirect(self.get_success_url())
+
+
+class UnclaimOccurrenceView(HouseholdMemberMixin, View):
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        unclaim_occurrence(occurrence)
+        return redirect(self.get_success_url())
+
+
+class CompleteOccurrenceView(HouseholdMemberMixin, View):
+    """#18: the single funnel point for completion. #19-#21, #25, #27,
+    #28 hook into this call site (photo proof, collaborative
+    contributions, points, etc.) rather than re-implementing completion.
+    """
+
+    def post(self, request, *args, **kwargs):
+        occurrence = get_object_or_404(
+            ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
+        )
+        try:
+            complete_occurrence(occurrence, self.membership)
+        except AlreadyCompletedError as exc:
+            messages.error(request, str(exc))
+        return redirect(self.get_success_url())

@@ -6,8 +6,10 @@ from django.utils import timezone
 
 from chores.models import Category, Chore, ChoreDependency, ChoreOccurrence
 from chores.occurrences import (
+    AlreadyCompletedError,
     DependencyNotDoneError,
     claim_occurrence,
+    complete_occurrence,
     due_at_for,
     ensure_occurrences_exist,
     period_start_for,
@@ -287,3 +289,70 @@ def test_claim_succeeds_once_dependency_done(household, category, member):
 
     occurrence.refresh_from_db()
     assert occurrence.status == ChoreOccurrence.Status.CLAIMED
+
+
+# --- completion (#18) ---
+
+
+@pytest.mark.django_db
+def test_complete_sets_status_and_completer(household, category, member):
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    complete_occurrence(occurrence, member)
+
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.DONE
+    assert occurrence.completed_by_id == member.pk
+    assert occurrence.completed_at is not None
+
+
+@pytest.mark.django_db
+def test_complete_works_from_claimed(household, category, member):
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore,
+        period_start=timezone.localdate(),
+        status=ChoreOccurrence.Status.CLAIMED,
+        claimed_by=member,
+        claimed_at=timezone.now(),
+    )
+
+    complete_occurrence(occurrence, member)
+
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.DONE
+
+
+@pytest.mark.django_db
+def test_cannot_complete_an_already_done_occurrence(household, category, member):
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore,
+        period_start=timezone.localdate(),
+        status=ChoreOccurrence.Status.DONE,
+        completed_by=member,
+        completed_at=timezone.now(),
+    )
+
+    with pytest.raises(AlreadyCompletedError):
+        complete_occurrence(occurrence, member)
+
+
+@pytest.mark.django_db
+def test_double_completion_race_only_applies_once(household, category, member):
+    """Simulates two 'simultaneous' completion attempts against the same
+    stale in-memory occurrence: the second call's conditional UPDATE
+    matches zero rows and raises, proving no double-write happens."""
+    chore = _make_chore(household, category)
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+    stale_copy = ChoreOccurrence.objects.get(pk=occurrence.pk)
+
+    complete_occurrence(occurrence, member)
+
+    with pytest.raises(AlreadyCompletedError):
+        complete_occurrence(stale_copy, member)

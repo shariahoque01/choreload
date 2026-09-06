@@ -141,3 +141,35 @@ def unclaim_occurrence(occurrence):
     occurrence.claimed_at = None
     occurrence.save(update_fields=['status', 'claimed_by', 'claimed_at'])
     return occurrence
+
+
+class AlreadyCompletedError(Exception):
+    """Raised when completion is attempted on an occurrence that is no
+    longer AVAILABLE/CLAIMED (already DONE, or OVERDUE) — including the
+    losing side of a race between two simultaneous completion requests.
+    """
+
+
+@transaction.atomic
+def complete_occurrence(occurrence, membership):
+    """Mark an occurrence DONE (#18). The single-statement conditional
+    UPDATE (`status__in=[AVAILABLE, CLAIMED]`) is what makes this
+    idempotent under concurrency: if two requests race, the database
+    only lets one UPDATE match a still-AVAILABLE/CLAIMED row, so the
+    second call's `updated` count is 0 and it raises instead of
+    double-writing completed_by/completed_at.
+    """
+    updated = ChoreOccurrence.objects.filter(
+        pk=occurrence.pk,
+        status__in=[ChoreOccurrence.Status.AVAILABLE, ChoreOccurrence.Status.CLAIMED],
+    ).update(
+        status=ChoreOccurrence.Status.DONE,
+        completed_by=membership,
+        completed_at=timezone.now(),
+    )
+    if updated == 0:
+        raise AlreadyCompletedError(
+            f'"{occurrence.chore}" ({occurrence.period_start}) is not AVAILABLE/CLAIMED.'
+        )
+    occurrence.refresh_from_db()
+    return occurrence

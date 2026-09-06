@@ -14,6 +14,15 @@ def _has_active_role(user, household, role):
     ).exists()
 
 
+def is_active_member(user, household):
+    """Any active member (PARENT or MEMBER) of the household — used to
+    gate claim/unclaim/complete actions (#13, #18), which any active
+    member may perform, not just PARENTs."""
+    if not user.is_authenticated:
+        return False
+    return Membership.objects.filter(household=household, user=user, is_active=True).exists()
+
+
 def can_manage_chores(user, household):
     """PARENT-only: create/edit/delete a chore, manage categories."""
     return _has_active_role(user, household, Membership.Role.PARENT)

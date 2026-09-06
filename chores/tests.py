@@ -357,3 +357,87 @@ def test_prefilled_form_can_still_be_edited_before_saving(client, household, cat
 
     assert response.status_code == 302
     assert Chore.objects.filter(household=household, name='Wash the dishes carefully').exists()
+
+
+# --- Occurrence claim/unclaim/complete views (#13, #18 HTTP layer) ---
+
+
+@pytest.mark.django_db
+def test_member_can_claim_occurrence_via_view(client, household, category):
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+    from django.utils import timezone
+
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/claim/')
+
+    assert response.status_code == 302
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.CLAIMED
+
+
+@pytest.mark.django_db
+def test_non_member_cannot_claim_occurrence(client, household, category):
+    other_household = Household.objects.create(name='Other', join_code='ZZZ111')
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=other_household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+    from django.utils import timezone
+
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/claim/')
+
+    assert response.status_code == 403
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.AVAILABLE
+
+
+@pytest.mark.django_db
+def test_member_can_complete_occurrence_via_view(client, household, category):
+    user = User.objects.create_user(username='alex', password='pw12345')
+    membership = Membership.objects.create(
+        household=household, user=user, role=Membership.Role.MEMBER
+    )
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+    from django.utils import timezone
+
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=timezone.localdate(), status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/complete/')
+
+    assert response.status_code == 302
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.DONE
+    assert occurrence.completed_by_id == membership.pk
+
+
+@pytest.mark.django_db
+def test_completing_already_done_occurrence_shows_error_not_500(client, household, category):
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+    from django.utils import timezone
+
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore,
+        period_start=timezone.localdate(),
+        status=ChoreOccurrence.Status.DONE,
+        completed_at=timezone.now(),
+    )
+
+    response = client.post(f'/households/{household.pk}/occurrences/{occurrence.pk}/complete/')
+
+    assert response.status_code == 302

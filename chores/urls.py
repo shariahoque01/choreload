@@ -17,4 +17,24 @@ urlpatterns = [
         views.ChoreDeleteView.as_view(),
         name='chore-delete',
     ),
+    path(
+        '<int:household_id>/occurrences/',
+        views.OccurrenceListView.as_view(),
+        name='occurrence-list',
+    ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/claim/',
+        views.ClaimOccurrenceView.as_view(),
+        name='occurrence-claim',
+    ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/unclaim/',
+        views.UnclaimOccurrenceView.as_view(),
+        name='occurrence-unclaim',
+    ),
+    path(
+        '<int:household_id>/occurrences/<int:pk>/complete/',
+        views.CompleteOccurrenceView.as_view(),
+        name='occurrence-complete',
+    ),
 ]

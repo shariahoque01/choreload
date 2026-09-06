@@ -1,0 +1,25 @@
+<h1>Occurrences</h1>
+<ul>
+{% for occurrence in occurrences %}
+  <li>
+    {{ occurrence.chore.name }} ({{ occurrence.period_start }}) — {{ occurrence.status }}
+    {% if occurrence.status == 'AVAILABLE' %}
+      <form method="post" action="{% url 'chores:occurrence-claim' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <button type="submit">Claim</button>
+      </form>
+    {% elif occurrence.status == 'CLAIMED' %}
+      <form method="post" action="{% url 'chores:occurrence-unclaim' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <button type="submit">Unclaim</button>
+      </form>
+    {% endif %}
+    {% if occurrence.status == 'AVAILABLE' or occurrence.status == 'CLAIMED' %}
+      <form method="post" action="{% url 'chores:occurrence-complete' household_id occurrence.pk %}">
+        {% csrf_token %}
+        <button type="submit">Mark done</button>
+      </form>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
