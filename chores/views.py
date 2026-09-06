@@ -12,7 +12,7 @@ from households.models import Household, Membership
 from households.permissions import can_approve, can_manage_chores, is_active_member
 
 from .forms import ChecklistItemFormSet, ChoreForm, ContributionForm
-from .models import Category, Chore, ChoreOccurrence, ChoreTemplate, PointAward
+from .models import Category, Chore, ChoreOccurrence, ChoreTemplate, FairnessSnapshot, PointAward
 from .occurrences import (
     AlreadyCompletedError,
     DependencyNotDoneError,
@@ -308,3 +308,36 @@ class InvalidateCompletionView(HouseholdMemberMixin, View):
         for award in PointAward.objects.filter(occurrence=occurrence, revoked_at__isnull=True):
             revoke_point_award(award, now)
         return redirect(self.get_success_url())
+
+
+class FairnessDashboardView(HouseholdMemberMixin, ListView):
+    """#24: shows the requesting member's fairness trend — an up/down
+    indicator versus their most recent prior snapshot, and the raw
+    series for a line chart. Viewing this (like any occurrence read)
+    triggers ensure_occurrences_exist, which writes today's snapshot
+    row exactly once per member per day.
+    """
+
+    template_name = 'chores/fairness_dashboard.html'
+    context_object_name = 'snapshots'
+
+    def get_queryset(self):
+        ensure_occurrences_exist(self.household)
+        return FairnessSnapshot.objects.filter(
+            household=self.household, member=self.membership
+        ).order_by('as_of_date')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        snapshots = list(context[self.context_object_name])
+        latest = snapshots[-1] if snapshots else None
+        previous = snapshots[-2] if len(snapshots) > 1 else None
+        trend = None
+        if latest is not None and previous is not None:
+            if latest.fairness_pct is not None and previous.fairness_pct is not None:
+                trend = 'up' if latest.fairness_pct > previous.fairness_pct else (
+                    'down' if latest.fairness_pct < previous.fairness_pct else 'flat'
+                )
+        context['latest_snapshot'] = latest
+        context['trend'] = trend
+        return context

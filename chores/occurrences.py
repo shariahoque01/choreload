@@ -14,7 +14,11 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .fairness import household_average_fairness_pct, project_fairness_pct
+from .fairness import (
+    household_average_fairness_pct,
+    project_fairness_pct,
+    write_todays_fairness_snapshots,
+)
 from .models import Chore, ChoreDependency, ChoreOccurrence
 
 
@@ -67,8 +71,10 @@ def window_label_for(chore):
 def ensure_occurrences_exist(household):
     """Create today's/this-period's occurrence for every recurring chore in
     the household (idempotent via get_or_create), then flip any occurrence
-    whose due_at has passed to OVERDUE (#14). Notification writes are out
-    of scope here — see #30.
+    whose due_at has passed to OVERDUE (#14), then write today's
+    FairnessSnapshot for every active member if it hasn't been written yet
+    (#24). Notification writes are out of scope here — see #30. No
+    background job for any of this — it all happens inline on every read.
     """
     today = timezone.localdate()
     for chore in household.chores.exclude(recurrence=Chore.Recurrence.NONE):
@@ -92,6 +98,8 @@ def ensure_occurrences_exist(household):
             due_at__lt=now,
         ).update(status=ChoreOccurrence.Status.OVERDUE)
     )
+
+    write_todays_fairness_snapshots(household, today)
 
 
 class DependencyNotDoneError(Exception):

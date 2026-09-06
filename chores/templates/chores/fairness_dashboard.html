@@ -1,0 +1,22 @@
+<h1>Fairness</h1>
+
+{% if latest_snapshot %}
+  <p>
+    Today's fairness: {{ latest_snapshot.fairness_pct|default:"N/A" }}%
+    {% if trend == 'up' %}
+      <span>&#9650;</span>
+    {% elif trend == 'down' %}
+      <span>&#9660;</span>
+    {% elif trend == 'flat' %}
+      <span>&#8213;</span>
+    {% endif %}
+  </p>
+{% else %}
+  <p>No fairness data yet.</p>
+{% endif %}
+
+<ul>
+{% for snapshot in snapshots %}
+  <li>{{ snapshot.as_of_date }}: {{ snapshot.fairness_pct|default:"N/A" }}%</li>
+{% endfor %}
+</ul>

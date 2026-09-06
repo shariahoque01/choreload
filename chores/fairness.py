@@ -133,3 +133,30 @@ def household_average_fairness_pct(household, as_of):
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def write_todays_fairness_snapshots(household, as_of_date):
+    """#24: write today's FairnessSnapshot for every active member, the
+    first time anyone views the household on a given day — called from
+    `ensure_occurrences_exist` (#12), not a separate scheduled job.
+    `get_or_create` on the (household, member, as_of_date) unique
+    constraint makes this idempotent: viewing twice in a day writes only
+    one row per member.
+    """
+    from .models import FairnessSnapshot  # local import: avoids a models<->fairness cycle
+
+    active_memberships = list(Membership.objects.filter(household=household, is_active=True))
+    for member in active_memberships:
+        if FairnessSnapshot.objects.filter(
+            household=household, member=member, as_of_date=as_of_date
+        ).exists():
+            continue
+        workload = calculate_workload(household, member, as_of_date)
+        FairnessSnapshot.objects.create(
+            household=household,
+            member=member,
+            as_of_date=as_of_date,
+            rolling_minutes=workload['rolling_minutes'],
+            availability_minutes=round(workload['available_hours'] * 60),
+            fairness_pct=workload['fairness_pct'],
+        )

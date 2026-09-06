@@ -52,4 +52,9 @@ urlpatterns = [
         views.InvalidateCompletionView.as_view(),
         name='occurrence-invalidate',
     ),
+    path(
+        '<int:household_id>/fairness/',
+        views.FairnessDashboardView.as_view(),
+        name='fairness-dashboard',
+    ),
 ]

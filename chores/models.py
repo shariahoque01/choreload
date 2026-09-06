@@ -261,3 +261,34 @@ class PointAward(models.Model):
 
     def __str__(self):
         return f'{self.points}pt {self.reason} for {self.member}'
+
+
+class FairnessSnapshot(models.Model):
+    """One day's fairness reading for one member (#24). Written at most
+    once per (household implied via member, member, as_of_date) the
+    first time that day is viewed by anyone in the household — inside
+    `ensure_occurrences_exist` (#12), not a separate scheduled job.
+    """
+
+    household = models.ForeignKey(
+        Household, on_delete=models.CASCADE, related_name='fairness_snapshots'
+    )
+    member = models.ForeignKey(
+        'households.Membership', on_delete=models.CASCADE, related_name='fairness_snapshots'
+    )
+    as_of_date = models.DateField()
+    rolling_minutes = models.PositiveIntegerField()
+    availability_minutes = models.PositiveIntegerField()
+    fairness_pct = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['household', 'member', 'as_of_date'],
+                name='unique_fairness_snapshot_per_day',
+            )
+        ]
+        ordering = ['as_of_date']
+
+    def __str__(self):
+        return f'{self.member} fairness on {self.as_of_date}'

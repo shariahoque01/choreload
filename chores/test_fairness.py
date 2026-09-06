@@ -181,3 +181,67 @@ def test_occurrences_outside_rolling_window_excluded(household, category):
     result = calculate_workload(household, alex, as_of)
 
     assert result['rolling_minutes'] == 0
+
+
+# --- Fairness snapshot and trend (#24) ---
+
+
+@pytest.mark.django_db
+def test_write_todays_fairness_snapshots_creates_one_row_per_member(household, category):
+    from chores.fairness import write_todays_fairness_snapshots
+    from chores.models import FairnessSnapshot
+
+    alex = _make_member(household, 'alex', {'mon': 10})
+    sam = _make_member(household, 'sam', {'mon': 10})
+    as_of = timezone.localdate()
+
+    write_todays_fairness_snapshots(household, as_of)
+
+    assert FairnessSnapshot.objects.filter(
+        household=household, member=alex, as_of_date=as_of
+    ).exists()
+    assert FairnessSnapshot.objects.filter(
+        household=household, member=sam, as_of_date=as_of
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_write_todays_fairness_snapshots_is_idempotent_per_day(household, category):
+    from chores.fairness import write_todays_fairness_snapshots
+    from chores.models import FairnessSnapshot
+
+    _make_member(household, 'alex', {'mon': 10})
+    as_of = timezone.localdate()
+
+    write_todays_fairness_snapshots(household, as_of)
+    write_todays_fairness_snapshots(household, as_of)
+
+    assert FairnessSnapshot.objects.filter(household=household, as_of_date=as_of).count() == 1
+
+
+@pytest.mark.django_db
+def test_ensure_occurrences_exist_writes_fairness_snapshots(household, category):
+    from chores.models import FairnessSnapshot
+    from chores.occurrences import ensure_occurrences_exist
+
+    _make_member(household, 'alex', {'mon': 10})
+    as_of = timezone.localdate()
+
+    ensure_occurrences_exist(household)
+    ensure_occurrences_exist(household)
+
+    assert FairnessSnapshot.objects.filter(household=household, as_of_date=as_of).count() == 1
+
+
+@pytest.mark.django_db
+def test_availability_minutes_stored_as_hours_times_60(household, category):
+    from chores.fairness import write_todays_fairness_snapshots
+    from chores.models import FairnessSnapshot
+
+    alex = _make_member(household, 'alex', {'mon': 5})
+    as_of = timezone.localdate()
+
+    write_todays_fairness_snapshots(household, as_of)
+
+    snapshot = FairnessSnapshot.objects.get(household=household, member=alex, as_of_date=as_of)
+    assert snapshot.availability_minutes == 300

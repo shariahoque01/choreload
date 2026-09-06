@@ -8,6 +8,7 @@ from .models import (
     ChoreOccurrence,
     ChoreTemplate,
     Contribution,
+    FairnessSnapshot,
     PointAward,
 )
 
@@ -19,3 +20,4 @@ admin.site.register(ChoreOccurrence)
 admin.site.register(ChoreTemplate)
 admin.site.register(Contribution)
 admin.site.register(PointAward)
+admin.site.register(FairnessSnapshot)

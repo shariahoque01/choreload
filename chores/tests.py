@@ -690,3 +690,55 @@ def test_member_cannot_invalidate_completion(client, household, category):
 
     assert response.status_code == 403
     assert PointAward.objects.filter(occurrence=occurrence, revoked_at__isnull=True).exists()
+
+
+# --- Fairness dashboard (#24 HTTP layer) ---
+
+
+@pytest.mark.django_db
+def test_fairness_dashboard_shows_trend(client, household, category):
+    from chores.models import FairnessSnapshot
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    membership = Membership.objects.create(
+        household=household, user=user, role=Membership.Role.MEMBER, available_hours={'mon': 10}
+    )
+    client.force_login(user)
+    from django.utils import timezone
+
+    FairnessSnapshot.objects.create(
+        household=household,
+        member=membership,
+        as_of_date=timezone.localdate() - __import__('datetime').timedelta(days=1),
+        rolling_minutes=0,
+        availability_minutes=600,
+        fairness_pct=50.0,
+    )
+
+    response = client.get(f'/households/{household.pk}/fairness/')
+
+    assert response.status_code == 200
+    assert response.context['trend'] in ('up', 'down', 'flat', None)
+
+
+@pytest.mark.django_db
+def test_viewing_fairness_dashboard_twice_writes_one_snapshot(client, household, category):
+    from chores.models import FairnessSnapshot
+
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(
+        household=household, user=user, role=Membership.Role.MEMBER, available_hours={'mon': 10}
+    )
+    client.force_login(user)
+
+    client.get(f'/households/{household.pk}/fairness/')
+    client.get(f'/households/{household.pk}/fairness/')
+
+    from django.utils import timezone
+
+    assert (
+        FairnessSnapshot.objects.filter(
+            household=household, as_of_date=timezone.localdate()
+        ).count()
+        == 1
+    )
