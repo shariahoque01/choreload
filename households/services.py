@@ -33,13 +33,22 @@ def join_household(user, code):
     turns that into a 404. Idempotent for a user who already holds an
     active Membership in that household: get_or_create returns the
     existing row rather than raising or creating a duplicate.
-    Reactivating an inactive (left) Membership is explicitly out of
-    scope here — see #17.
+
+    A user who previously left (#17) has a matching inactive Membership
+    row already, so get_or_create finds it instead of making a new one;
+    this reactivates it in place (is_active=True, left_at cleared) so
+    every FK into it — PointAward, and eventually MemberBadge/Streak
+    once #27/#28 exist — keeps pointing at the same row rather than a
+    fresh one.
     """
     household = Household.objects.get(join_code=code)
-    membership, _created = Membership.objects.get_or_create(
+    membership, created = Membership.objects.get_or_create(
         household=household, user=user, defaults={'role': Membership.Role.MEMBER}
     )
+    if not created and not membership.is_active:
+        membership.is_active = True
+        membership.left_at = None
+        membership.save(update_fields=['is_active', 'left_at'])
     return membership
 
 
@@ -144,3 +153,41 @@ def pauses_needing_decision(membership):
         .filter(Q(ended_at__isnull=False) | Q(end_date__lte=today, ended_at__isnull=True))
         .order_by('-start_date')
     )
+
+
+@transaction.atomic
+def leave_household(membership):
+    """A member leaves their household (#17): deactivates the
+    Membership rather than deleting it, so it can be reactivated by
+    join_household() later without losing any FK into it.
+
+    - Releases every currently-CLAIMED occurrence via
+      chores/occurrences.py's unclaim_occurrence() (#13) — no
+      duplicate write path.
+    - Clears completed_by/completed_at on this member's completed
+      occurrences. This erases *attribution* only: the ChoreOccurrence
+      row itself is not deleted (deleting it would cascade-delete its
+      PointAward rows, since PointAward.occurrence is on_delete=CASCADE
+      — that would violate "leaving preserves PointAward rows" below).
+    - PointAward rows are left untouched, so points earned survive the
+      member leaving. MemberBadge/Streak don't exist yet (#27, #28 are
+      post-MVP); once they do, they should follow the same rule — FK to
+      Membership, never touched by this function.
+    """
+    from chores.models import ChoreOccurrence
+    from chores.occurrences import unclaim_occurrence
+
+    claimed = ChoreOccurrence.objects.filter(
+        claimed_by=membership, status=ChoreOccurrence.Status.CLAIMED
+    )
+    for occurrence in claimed:
+        unclaim_occurrence(occurrence)
+
+    ChoreOccurrence.objects.filter(completed_by=membership).update(
+        completed_by=None, completed_at=None
+    )
+
+    membership.is_active = False
+    membership.left_at = timezone.now()
+    membership.save(update_fields=['is_active', 'left_at'])
+    return membership

@@ -12,6 +12,7 @@ from .services import (
     create_household,
     get_active_membership,
     join_household,
+    leave_household,
     pauses_needing_decision,
     rotate_join_code,
     set_active_household,
@@ -108,3 +109,19 @@ class PauseResumeListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         context['household'] = self.household
         return context
+
+
+class LeaveHouseholdView(LoginRequiredMixin, View):
+    """#17: any active member may leave their own household. Only
+    deactivates the Membership (see leave_household's docstring) — it
+    is never deleted, so rejoining via the same join code (#4's
+    JoinHouseholdView) reactivates this same row.
+    """
+
+    def post(self, request, household_id):
+        household = get_object_or_404(Household, pk=household_id)
+        membership = get_object_or_404(
+            Membership, household=household, user=request.user, is_active=True
+        )
+        leave_household(membership)
+        return redirect('households:switch')

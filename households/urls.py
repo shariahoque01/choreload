@@ -13,4 +13,5 @@ urlpatterns = [
         views.PauseResumeListView.as_view(),
         name='pause-resume-list',
     ),
+    path('<int:household_id>/leave/', views.LeaveHouseholdView.as_view(), name='leave'),
 ]
