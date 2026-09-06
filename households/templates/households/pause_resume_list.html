@@ -1,0 +1,16 @@
+<h1>Pauses needing a decision</h1>
+<ul>
+{% for pause in pauses %}
+  <li>
+    {{ pause.chore.name|default:"All chores" }} — paused since {{ pause.start_date }}
+    {% if pause.ended_at %}
+      (ended manually)
+    {% else %}
+      (ended {{ pause.end_date }})
+    {% endif %}
+    <a href="{% url 'chores:occurrence-list' household.pk %}">Resume</a>
+  </li>
+{% empty %}
+  <li>No pauses need a decision right now.</li>
+{% endfor %}
+</ul>

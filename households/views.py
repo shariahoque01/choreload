@@ -3,15 +3,16 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.views import View
-from django.views.generic import CreateView, TemplateView
+from django.views.generic import CreateView, ListView, TemplateView
 
 from .forms import HouseholdCreateForm
 from .models import Household, Membership
-from .permissions import can_manage_members
+from .permissions import can_manage_members, is_active_member
 from .services import (
     create_household,
     get_active_membership,
     join_household,
+    pauses_needing_decision,
     rotate_join_code,
     set_active_household,
 )
@@ -78,3 +79,32 @@ class SwitchHouseholdView(LoginRequiredMixin, TemplateView):
         )
         set_active_household(request, membership.household)
         return redirect('home')
+
+
+class PauseResumeListView(LoginRequiredMixin, ListView):
+    """#16: lists this member's ended pauses needing a resume decision.
+    Purely informational — there is no "resume" endpoint to POST to,
+    since resuming has no effect beyond letting the member re-claim
+    through the normal claim flow (#13). The template links each row
+    straight to that household's occurrence list.
+    """
+
+    template_name = 'households/pause_resume_list.html'
+    context_object_name = 'pauses'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.household = get_object_or_404(Household, pk=kwargs['household_id'])
+        if request.user.is_authenticated and not is_active_member(request.user, self.household):
+            raise PermissionDenied('Only an active member of this household may do that.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        membership = Membership.objects.get(
+            household=self.household, user=self.request.user, is_active=True
+        )
+        return pauses_needing_decision(membership)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['household'] = self.household
+        return context

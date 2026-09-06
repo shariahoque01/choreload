@@ -156,3 +156,73 @@ def test_expired_pause_leaves_ended_at_unset(household, category, member):
 
     pause.refresh_from_db()
     assert pause.ended_at is None
+
+
+# --- resume prompt (#16) ---
+
+
+@pytest.mark.django_db
+def test_pauses_needing_decision_includes_manually_ended_pause(household, category, member):
+    from households.services import pauses_needing_decision
+
+    chore = _make_chore(household, category)
+    pause = Pause.objects.create(
+        membership=member, chore=chore, start_date=datetime.date(2024, 1, 1)
+    )
+    end_pause(pause)
+
+    assert pause in pauses_needing_decision(member)
+
+
+@pytest.mark.django_db
+def test_pauses_needing_decision_includes_naturally_expired_pause(household, category, member):
+    from households.services import pauses_needing_decision
+
+    chore = _make_chore(household, category)
+    pause = Pause.objects.create(
+        membership=member,
+        chore=chore,
+        start_date=datetime.date(2020, 1, 1),
+        end_date=datetime.date(2020, 1, 31),
+    )
+
+    assert pause in pauses_needing_decision(member)
+
+
+@pytest.mark.django_db
+def test_pauses_needing_decision_excludes_active_pause(household, category, member):
+    from households.services import pauses_needing_decision
+
+    chore = _make_chore(household, category)
+    future = timezone.localdate() + datetime.timedelta(days=30)
+    pause = Pause.objects.create(
+        membership=member, chore=chore, start_date=timezone.localdate(), end_date=future
+    )
+
+    assert pause not in pauses_needing_decision(member)
+
+
+@pytest.mark.django_db
+def test_pauses_needing_decision_excludes_indefinite_unended_pause(household, category, member):
+    from households.services import pauses_needing_decision
+
+    chore = _make_chore(household, category)
+    pause = Pause.objects.create(
+        membership=member, chore=chore, start_date=timezone.localdate(), end_date=None
+    )
+
+    assert pause not in pauses_needing_decision(member)
+
+
+@pytest.mark.django_db
+def test_viewing_resume_prompt_does_not_auto_reclaim_anything(client, household, category, member):
+    chore = _make_chore(household, category)
+    occurrence = _claim(chore, member, datetime.date(2024, 3, 5))
+    create_pause(member, chore, datetime.date(2024, 3, 1), datetime.date(2024, 3, 10))
+
+    client.force_login(member.user)
+    response = client.get(f'/households/{household.pk}/pauses/')
+
+    assert response.status_code == 200
+    occurrence.refresh_from_db()
+    assert occurrence.status == ChoreOccurrence.Status.AVAILABLE

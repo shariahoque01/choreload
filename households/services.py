@@ -4,6 +4,7 @@ request/response cycle.
 """
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .join_codes import unique_join_code
@@ -128,3 +129,18 @@ def end_pause(pause):
     pause.ended_at = timezone.now()
     pause.save(update_fields=['ended_at'])
     return pause
+
+
+def pauses_needing_decision(membership):
+    """This member's pauses that have ended and need a resume decision
+    (#16): manually-ended ones (ended_at set) plus naturally-expired
+    ones (end_date <= today, ended_at still null). Expiry is detected
+    here on-demand, every read — nothing backfills ended_at for it,
+    consistent with #15's Pause docstring.
+    """
+    today = timezone.localdate()
+    return (
+        Pause.objects.filter(membership=membership)
+        .filter(Q(ended_at__isnull=False) | Q(end_date__lte=today, ended_at__isnull=True))
+        .order_by('-start_date')
+    )
