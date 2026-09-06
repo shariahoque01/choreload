@@ -1,0 +1,14 @@
+<h1>Choose a household</h1>
+<form method="post">
+  {% csrf_token %}
+  <ul>
+  {% for membership in memberships %}
+    <li>
+      <button type="submit" name="membership_id" value="{{ membership.pk }}">
+        {{ membership.household.name }}
+      </button>
+    </li>
+  {% endfor %}
+  </ul>
+</form>
+<p><a href="{% url 'households:create' %}">Create a new household</a></p>

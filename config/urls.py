@@ -18,10 +18,13 @@ from django.contrib import admin
 from django.urls import include, path
 
 from config.views import health_check
+from households.views import JoinHouseholdView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health-check'),
+    path('join/<str:code>/', JoinHouseholdView.as_view(), name='join'),
     path('households/', include('chores.urls', namespace='chores')),
+    path('households/', include('households.urls', namespace='households')),
     path('', include('accounts.urls')),
 ]
