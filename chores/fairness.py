@@ -39,7 +39,6 @@ def _available_hours(membership):
     task only needs to read whatever is there, defaulting to 0)."""
     return sum(membership.available_hours.values()) if membership.available_hours else 0
 
-
 def _rolling_minutes(household, member, window_start, as_of):
     """Minutes `member` is credited with in [window_start, as_of],
     counting only DONE occurrences via completed_by/Contribution —
@@ -93,5 +92,44 @@ def calculate_workload(household, member, as_of):
         'rolling_minutes': member_minutes,
         'household_total_minutes': household_total_minutes,
         'available_hours': member_hours,
+        'total_available_hours': total_available_hours,
         'fairness_pct': fairness_pct,
     }
+
+
+def project_fairness_pct(household, member, as_of, extra_minutes):
+    """What `member`'s fairness_pct would become if they were credited
+    an additional `extra_minutes` right now — a hypothetical projection,
+    not a write. Used by #23 to warn at claim time (claiming alone
+    doesn't change actual workload; only completing does, so this
+    answers "if I finish this, what happens to my fairness gap?").
+    Returns None when undefined (same guard as calculate_workload).
+    """
+    current = calculate_workload(household, member, as_of)
+    member_hours = current['available_hours']
+    total_available_hours = current['total_available_hours']
+    if member_hours <= 0 or total_available_hours <= 0:
+        return None
+    projected_member_minutes = current['rolling_minutes'] + extra_minutes
+    projected_household_minutes = current['household_total_minutes'] + extra_minutes
+    if projected_household_minutes <= 0:
+        return None
+    expected_share_minutes = projected_household_minutes * (member_hours / total_available_hours)
+    if expected_share_minutes <= 0:
+        return None
+    return (projected_member_minutes / expected_share_minutes) * 100
+
+
+def household_average_fairness_pct(household, as_of):
+    """The average fairness_pct across active members for whom it's
+    defined — the "household average" the #23 warning threshold is
+    measured against. Returns None if no member has a defined
+    fairness_pct."""
+    active_memberships = list(Membership.objects.filter(household=household, is_active=True))
+    values = [
+        calculate_workload(household, m, as_of)['fairness_pct'] for m in active_memberships
+    ]
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)

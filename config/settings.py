@@ -153,3 +153,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'home'
+
+# Fairness (#23): warn (never block) a claim that would push the
+# claimant's projected fairness_pct more than this many percentage
+# points from the household average.
+FAIRNESS_WARNING_THRESHOLD_PCT = 20

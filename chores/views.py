@@ -208,9 +208,12 @@ class ClaimOccurrenceView(HouseholdMemberMixin, View):
             ChoreOccurrence, pk=kwargs['pk'], chore__household=self.household
         )
         try:
-            claim_occurrence(occurrence, self.membership)
+            _occurrence, warning = claim_occurrence(occurrence, self.membership)
         except DependencyNotDoneError as exc:
             messages.error(request, str(exc))
+        else:
+            if warning:
+                messages.warning(request, warning)
         return redirect(self.get_success_url())
 
 

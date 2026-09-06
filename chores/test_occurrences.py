@@ -396,3 +396,116 @@ def test_cannot_confirm_occurrence_that_is_not_done(household, category, member)
 
     with pytest.raises(NotDoneYetError):
         confirm_occurrence(occurrence, parent_membership)
+
+
+# --- Unfair-claim warning (#23) ---
+
+
+@pytest.mark.django_db
+def test_claim_warns_when_it_would_widen_fairness_gap(household, category):
+    alex = Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='alex', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='sam', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    as_of = timezone.localdate()
+    now = timezone.make_aware(datetime.datetime.combine(as_of, datetime.time(12, 0)))
+    # alex has already done a lot of work relative to the fair share
+    already_done_chore = _make_chore(
+        household, category, name='Already done', estimated_minutes=600, initial_estimate=600
+    )
+    ChoreOccurrence.objects.create(
+        chore=already_done_chore,
+        period_start=as_of,
+        status=ChoreOccurrence.Status.DONE,
+        completed_by=alex,
+        completed_at=now,
+    )
+    chore = _make_chore(household, category, name='One more chore')
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=as_of, status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    _occurrence, warning = claim_occurrence(occurrence, alex)
+
+    assert warning is not None
+
+
+@pytest.mark.django_db
+def test_claim_does_not_warn_when_gap_stays_within_threshold(household, category):
+    alex = Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='alex', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='sam', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    as_of = timezone.localdate()
+    now = timezone.make_aware(datetime.datetime.combine(as_of, datetime.time(12, 0)))
+    chore_a = _make_chore(household, category, name='Wash dishes')
+    chore_b = _make_chore(household, category, name='Vacuum')
+    ChoreOccurrence.objects.create(
+        chore=chore_a,
+        period_start=as_of,
+        status=ChoreOccurrence.Status.DONE,
+        completed_by=alex,
+        completed_at=now,
+    )
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore_b, period_start=as_of, status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    sam = Membership.objects.get(user__username='sam')
+    _occurrence, warning = claim_occurrence(occurrence, sam)
+
+    assert warning is None
+
+
+@pytest.mark.django_db
+def test_claim_still_succeeds_after_warning(household, category):
+    alex = Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='alex', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    Membership.objects.create(
+        household=household,
+        user=User.objects.create_user(username='sam', password='pw12345'),
+        role=Membership.Role.MEMBER,
+        available_hours={'mon': 10},
+    )
+    as_of = timezone.localdate()
+    now = timezone.make_aware(datetime.datetime.combine(as_of, datetime.time(12, 0)))
+    already_done_chore = _make_chore(
+        household, category, name='Already done', estimated_minutes=600, initial_estimate=600
+    )
+    ChoreOccurrence.objects.create(
+        chore=already_done_chore,
+        period_start=as_of,
+        status=ChoreOccurrence.Status.DONE,
+        completed_by=alex,
+        completed_at=now,
+    )
+    chore = _make_chore(household, category, name='One more chore')
+    occurrence = ChoreOccurrence.objects.create(
+        chore=chore, period_start=as_of, status=ChoreOccurrence.Status.AVAILABLE
+    )
+
+    occurrence, warning = claim_occurrence(occurrence, alex)
+
+    assert warning is not None
+    assert occurrence.status == ChoreOccurrence.Status.CLAIMED
+    assert occurrence.claimed_by_id == alex.pk

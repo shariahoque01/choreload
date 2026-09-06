@@ -10,9 +10,11 @@ are the sole writers of `ChoreOccurrence.status`, `claimed_by`, and
 import calendar
 import datetime
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from .fairness import household_average_fairness_pct, project_fairness_pct
 from .models import Chore, ChoreDependency, ChoreOccurrence
 
 
@@ -118,7 +120,14 @@ def claim_occurrence(occurrence, membership):
     """Claim an available occurrence for an active member. Any active
     member may claim at any time, even before the period starts. Blocked
     if a ChoreDependency's depends_on chore's current occurrence isn't
-    DONE yet (#13)."""
+    DONE yet (#13).
+
+    Returns (occurrence, warning): `warning` is a non-blocking string
+    (#23) when completing this occurrence would push the claimant's
+    projected fairness_pct more than FAIRNESS_WARNING_THRESHOLD_PCT
+    points from the household average, else None. The claim always
+    succeeds regardless of the warning.
+    """
     blocking = _dependency_blocking(occurrence)
     if blocking is not None:
         raise DependencyNotDoneError(
@@ -128,7 +137,27 @@ def claim_occurrence(occurrence, membership):
     occurrence.claimed_by = membership
     occurrence.claimed_at = timezone.now()
     occurrence.save(update_fields=['status', 'claimed_by', 'claimed_at'])
-    return occurrence
+    warning = _fairness_warning(occurrence, membership)
+    return occurrence, warning
+
+
+def _fairness_warning(occurrence, membership):
+    household = occurrence.chore.household
+    as_of = timezone.localdate()
+    projected_pct = project_fairness_pct(
+        household, membership, as_of, occurrence.chore.estimated_minutes
+    )
+    average_pct = household_average_fairness_pct(household, as_of)
+    if projected_pct is None or average_pct is None:
+        return None
+    threshold = getattr(settings, 'FAIRNESS_WARNING_THRESHOLD_PCT', 20)
+    if abs(projected_pct - average_pct) > threshold:
+        return (
+            f'Claiming "{occurrence.chore}" would put your workload at '
+            f'{projected_pct:.0f}% of your fair share, versus the household '
+            f'average of {average_pct:.0f}%.'
+        )
+    return None
 
 
 @transaction.atomic
