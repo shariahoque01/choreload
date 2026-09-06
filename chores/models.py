@@ -99,6 +99,27 @@ class Chore(models.Model):
         return self.name
 
 
+class ChoreTemplate(models.Model):
+    """A seed-data starter for the #8 chore form — global (not
+    household-scoped), organized by room/task. `category_name` is a
+    plain label rather than an FK to Category: Category rows are
+    per-household, but a template must be usable across every household,
+    so the create-from-template flow (#10) matches this label against
+    the target household's own Category by name, leaving it blank for
+    the user to pick if no match exists. Not editable via the UI — see
+    #10's constraints.
+    """
+
+    name = models.CharField(max_length=200)
+    category_name = models.CharField(max_length=100)
+    default_difficulty = models.PositiveSmallIntegerField(default=1)
+    default_minutes = models.PositiveIntegerField()
+    default_points = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return self.name
+
+
 class ChoreDependency(models.Model):
     """Self-referential: `chore` cannot be claimed until `depends_on`'s
     current occurrence is DONE. Enforcement lives in the claim service

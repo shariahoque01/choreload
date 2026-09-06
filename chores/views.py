@@ -3,13 +3,13 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, ListView, UpdateView
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from households.models import Household
 from households.permissions import can_manage_chores
 
 from .forms import ChecklistItemFormSet, ChoreForm
-from .models import Chore
+from .models import Category, Chore, ChoreTemplate
 
 
 class HouseholdChoreMixin(LoginRequiredMixin):
@@ -44,9 +44,36 @@ class ChoreListView(LoginRequiredMixin, ListView):
 
 
 class ChoreCreateView(HouseholdChoreMixin, CreateView):
+    """A plain create form, or pre-filled from a #10 ChoreTemplate via
+    ?template=<id>. The template's category_name is matched against this
+    household's own Category by name; if none matches, category is left
+    blank for the user to pick. The pre-filled form is still fully
+    editable before saving — nothing is auto-submitted.
+    """
+
     model = Chore
     form_class = ChoreForm
     template_name = 'chores/chore_form.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        template_id = self.request.GET.get('template')
+        if template_id:
+            chore_template = get_object_or_404(ChoreTemplate, pk=template_id)
+            matching_category = Category.objects.filter(
+                household=self.household, name=chore_template.category_name
+            ).first()
+            initial.update(
+                {
+                    'name': chore_template.name,
+                    'difficulty': chore_template.default_difficulty,
+                    'estimated_minutes': chore_template.default_minutes,
+                    'initial_estimate': chore_template.default_minutes,
+                    'point_value': chore_template.default_points,
+                    'category': matching_category.pk if matching_category else None,
+                }
+            )
+        return initial
 
     def form_valid(self, form):
         form.instance.created_by = self.request.user
@@ -86,3 +113,32 @@ class ChoreUpdateView(HouseholdChoreMixin, UpdateView):
         return self.render_to_response(
             self.get_context_data(form=form, checklist_formset=checklist_formset)
         )
+
+
+class ChoreDeleteView(HouseholdChoreMixin, DeleteView):
+    """#9: hard delete, PARENT-only (via HouseholdChoreMixin's
+    can_manage_chores check). Cascades to ChoreOccurrence and anything
+    that references it (Contribution, PointAward, Streak, as those
+    models land) via each FK's on_delete=CASCADE — no separate cleanup
+    code, no soft-delete flag.
+    """
+
+    model = Chore
+    template_name = 'chores/chore_confirm_delete.html'
+
+    def get_form_kwargs(self):
+        # DeleteView's confirmation form is a plain Form, not ChoreForm —
+        # skip HouseholdChoreMixin's `household` kwarg injection, but keep
+        # the usual data/files binding so the empty confirmation form is
+        # still a *bound*, valid form on POST.
+        kwargs = {'initial': self.get_initial()}
+        if self.request.method in ('POST', 'PUT'):
+            kwargs.update({'data': self.request.POST, 'files': self.request.FILES})
+        return kwargs
+
+    def get_queryset(self):
+        # Scoped to this household: a PARENT from household A cannot
+        # delete a Chore belonging to household B (get_object_or_404
+        # inside DeleteView.get_object() 404s instead of leaking across
+        # households).
+        return Chore.objects.filter(household=self.household)

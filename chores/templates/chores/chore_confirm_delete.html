@@ -1,0 +1,6 @@
+<h1>Delete chore</h1>
+<form method="post">
+  {% csrf_token %}
+  <p>Delete "{{ object.name }}"? This permanently removes all its history.</p>
+  <button type="submit">Delete</button>
+</form>

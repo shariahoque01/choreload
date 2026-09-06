@@ -12,4 +12,9 @@ urlpatterns = [
         views.ChoreUpdateView.as_view(),
         name='chore-edit',
     ),
+    path(
+        '<int:household_id>/chores/<int:pk>/delete/',
+        views.ChoreDeleteView.as_view(),
+        name='chore-delete',
+    ),
 ]

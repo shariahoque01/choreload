@@ -10,6 +10,8 @@ from chores.models import (
     ChecklistItem,
     Chore,
     ChoreDependency,
+    ChoreOccurrence,
+    ChoreTemplate,
     seed_default_categories,
 )
 from households.models import Household, Membership
@@ -256,3 +258,102 @@ def test_checklist_item_crud_via_chore_edit_view(client, household, category):
 
     assert response.status_code == 302
     assert ChecklistItem.objects.filter(chore=chore, label='Rinse plates').exists()
+
+
+# --- Chore deletion (#9) ---
+
+
+@pytest.mark.django_db
+def test_parent_can_delete_chore(client, household, category):
+    user = User.objects.create_user(username='parent', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    response = client.post(f'/households/{household.pk}/chores/{chore.pk}/delete/')
+
+    assert response.status_code == 302
+    assert not Chore.objects.filter(pk=chore.pk).exists()
+
+
+@pytest.mark.django_db
+def test_member_cannot_delete_chore(client, household, category):
+    user = User.objects.create_user(username='alex', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.MEMBER)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    response = client.post(f'/households/{household.pk}/chores/{chore.pk}/delete/')
+
+    assert response.status_code == 403
+    assert Chore.objects.filter(pk=chore.pk).exists()
+
+
+@pytest.mark.django_db
+def test_deleting_chore_cascades_occurrences(household, category):
+    chore = _make_chore(household, category, 'Wash dishes')
+    ChoreOccurrence.objects.create(chore=chore, period_start='2024-03-14')
+
+    chore.delete()
+
+    assert not ChoreOccurrence.objects.exists()
+
+
+@pytest.mark.django_db
+def test_parent_from_other_household_cannot_delete_chore(client, household, category):
+    other_household = Household.objects.create(name='Other', join_code='ZZZ999')
+    user = User.objects.create_user(username='parent', password='pw12345')
+    Membership.objects.create(household=other_household, user=user, role=Membership.Role.PARENT)
+    client.force_login(user)
+    chore = _make_chore(household, category, 'Wash dishes')
+
+    response = client.post(f'/households/{other_household.pk}/chores/{chore.pk}/delete/')
+
+    assert response.status_code == 404
+    assert Chore.objects.filter(pk=chore.pk).exists()
+
+
+# --- ChoreTemplate library (#10) ---
+
+
+@pytest.mark.django_db
+def test_chore_template_library_is_seeded_by_migration():
+    assert ChoreTemplate.objects.count() > 0
+    assert ChoreTemplate.objects.filter(category_name='Kitchen').exists()
+
+
+@pytest.mark.django_db
+def test_create_from_template_prefills_form(client, household, category):
+    user = User.objects.create_user(username='parent', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+    client.force_login(user)
+    template = ChoreTemplate.objects.create(
+        name='Wash dishes', category_name='Kitchen', default_difficulty=1,
+        default_minutes=15, default_points=10,
+    )
+
+    response = client.get(f'/households/{household.pk}/chores/new/?template={template.pk}')
+
+    assert response.status_code == 200
+    form = response.context['form']
+    assert form.initial['name'] == 'Wash dishes'
+    assert form.initial['category'] == category.pk
+
+
+@pytest.mark.django_db
+def test_prefilled_form_can_still_be_edited_before_saving(client, household, category):
+    user = User.objects.create_user(username='parent', password='pw12345')
+    Membership.objects.create(household=household, user=user, role=Membership.Role.PARENT)
+    client.force_login(user)
+    template = ChoreTemplate.objects.create(
+        name='Wash dishes', category_name='Kitchen', default_difficulty=1,
+        default_minutes=15, default_points=10,
+    )
+
+    response = client.post(
+        f'/households/{household.pk}/chores/new/?template={template.pk}',
+        data=_chore_form_data(category, name='Wash the dishes carefully'),
+    )
+
+    assert response.status_code == 302
+    assert Chore.objects.filter(household=household, name='Wash the dishes carefully').exists()
