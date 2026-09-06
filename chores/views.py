@@ -11,7 +11,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from households.models import Household, Membership
 from households.permissions import can_approve, can_manage_chores, is_active_member
 
-from .forms import ChecklistItemFormSet, ChoreForm, ContributionForm
+from .forms import ChecklistItemFormSet, ChoreForm, CompleteOccurrenceForm, ContributionForm
 from .models import Category, Chore, ChoreOccurrence, ChoreTemplate, FairnessSnapshot, PointAward
 from .occurrences import (
     AlreadyCompletedError,
@@ -23,6 +23,7 @@ from .occurrences import (
     ensure_occurrences_exist,
     unclaim_occurrence,
 )
+from .photos import process_photo_proof
 from .rewards import award_points_for_completion, revoke_point_award
 
 
@@ -242,7 +243,21 @@ class CompleteOccurrenceView(HouseholdMemberMixin, View):
             messages.error(request, str(exc))
         else:
             award_points_for_completion(occurrence, self.membership)
+            self._save_photo_proof(request, occurrence)
         return redirect(self.get_success_url())
+
+    def _save_photo_proof(self, request, occurrence):
+        """#19: optional — completion above has already succeeded
+        either way. An invalid upload (e.g. not an image) surfaces as a
+        form error message rather than losing the completion."""
+        form = CompleteOccurrenceForm(request.POST, request.FILES, instance=occurrence)
+        if not request.FILES.get('photo_proof'):
+            return
+        if not form.is_valid():
+            messages.error(request, 'Photo proof could not be saved: invalid image.')
+            return
+        occurrence.photo_proof = process_photo_proof(form.cleaned_data['photo_proof'])
+        occurrence.save(update_fields=['photo_proof'])
 
 
 class AddContributionView(HouseholdMemberMixin, View):

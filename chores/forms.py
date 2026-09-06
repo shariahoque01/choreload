@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ChecklistItem, Chore, ChoreDependency, Contribution
+from .models import ChecklistItem, Chore, ChoreDependency, ChoreOccurrence, Contribution
 
 
 class ChoreForm(forms.ModelForm):
@@ -88,3 +88,18 @@ class ContributionForm(forms.ModelForm):
     class Meta:
         model = Contribution
         fields = ['minutes_spent']
+
+
+class CompleteOccurrenceForm(forms.ModelForm):
+    """#19: the completion form from #18, extended with an optional
+    photo_proof. Completion works exactly the same with no photo — this
+    field is never required.
+    """
+
+    class Meta:
+        model = ChoreOccurrence
+        fields = ['photo_proof']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['photo_proof'].required = False

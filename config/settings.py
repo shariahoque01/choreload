@@ -142,6 +142,17 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Media (photo proof, #19). Local FileSystemStorage for now — no
+# django-storages/S3 dependency yet, since real bucket config is #38
+# (post-MVP). Swapping DEFAULT_FILE_STORAGE to an S3-compatible backend
+# once #38 lands should not require touching this app's code.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# #19: uploaded photo proof is resized so its longest side is at most
+# this many pixels, before EXIF is stripped.
+PHOTO_PROOF_MAX_DIMENSION = 1600
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

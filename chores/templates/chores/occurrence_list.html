@@ -15,10 +15,14 @@
       </form>
     {% endif %}
     {% if occurrence.status == 'AVAILABLE' or occurrence.status == 'CLAIMED' %}
-      <form method="post" action="{% url 'chores:occurrence-complete' household_id occurrence.pk %}">
+      <form method="post" enctype="multipart/form-data" action="{% url 'chores:occurrence-complete' household_id occurrence.pk %}">
         {% csrf_token %}
+        <input type="file" name="photo_proof" accept="image/*">
         <button type="submit">Mark done</button>
       </form>
+    {% endif %}
+    {% if occurrence.photo_proof %}
+      <img src="{{ occurrence.photo_proof.url }}" alt="Proof of completion" width="120">
     {% endif %}
     {% if occurrence.status == 'DONE' and occurrence.chore.is_collaborative %}
       <form method="post" action="{% url 'chores:occurrence-contribute' household_id occurrence.pk %}">

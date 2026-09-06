@@ -204,6 +204,9 @@ class ChoreOccurrence(models.Model):
         related_name='confirmed_occurrences',
     )
     parent_confirmed_at = models.DateTimeField(null=True, blank=True)
+    # #19: optional proof photo, resized and stripped of EXIF by
+    # chores/photos.py before being saved here — never the raw upload.
+    photo_proof = models.ImageField(upload_to='photo_proof/%Y/%m/', null=True, blank=True)
 
     class Meta:
         constraints = [
